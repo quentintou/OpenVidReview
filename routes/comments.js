@@ -6,7 +6,8 @@ const { body, validationResult } = require('express-validator');
 
 // Middleware to check if user is authenticated for specific user-level access
 function isAuthenticatedU(req, res, next) {
-    if (req.session.isAuthenticatedU) {
+    // Accepter soit l'authentification utilisateur soit l'authentification admin
+    if (req.session.isAuthenticatedU || req.session.isAuthenticated) {
         return next();
     }
     res.status(401).json({ message: 'Unauthorized' });
@@ -35,7 +36,7 @@ router.post(
         body('timestamp').isNumeric(),
         body('username').isString().notEmpty(),
         body('colorName').isString().notEmpty(),
-        body('isDone').isBoolean().notEmpty()
+        body('isDone').isBoolean().optional()
     ],  
     (req, res) => {
         const errors = validationResult(req);
@@ -47,7 +48,7 @@ router.post(
         const createdAt = new Date().toISOString();
         db.run(
             'INSERT INTO comments (videoId, text, timestamp, createdAt, username, colorName, isDone) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            [videoId, text, timestamp, createdAt, username, colorName, isDone],
+            [videoId, text, timestamp, createdAt, username, colorName, isDone || 0],
             function(err) {
                 if (err) {
                     console.error('Error saving comment:', err.message);

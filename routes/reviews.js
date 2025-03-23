@@ -15,7 +15,7 @@ function isAuthenticated(req, res, next) {
 
 // Middleware to check if user is authenticated for specific user-level access
 function isAuthenticatedU(req, res, next) {
-    if (req.session.isAuthenticatedU) {
+    if (req.session.isAuthenticatedU || req.session.isAuthenticated) {
         return next();
     }
     res.status(401).json({ message: 'Unauthorized' });

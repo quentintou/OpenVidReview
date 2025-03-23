@@ -5,45 +5,13 @@ const path = require('path');
 const fs = require('fs').promises;
 const db = require('../db/sqlite');
 const ffmpeg = require('fluent-ffmpeg');
+const cloudinary = require('../config/cloudinary');
+const { Readable } = require('stream');
 
 const router = express.Router();
 
-// Custom storage engine for multer
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        const uploadPath = './public/videos';
-        cb(null, uploadPath);
-    },
-    filename: async (req, file, cb) => {
-        const uploadPath = './public/videos';
-        let filename = file.originalname;
-        let filePath = path.join(uploadPath, filename);
-
-        try {
-            let fileExists = true;
-            let counter = 1;
-
-            // Check if file already exists and modify filename if necessary
-            while (fileExists) {
-                try {
-                    await fs.access(filePath);
-                    const fileExt = path.extname(file.originalname);
-                    const fileNameWithoutExt = path.basename(file.originalname, fileExt);
-                    filename = `${fileNameWithoutExt}_${counter}${fileExt}`;
-                    filePath = path.join(uploadPath, filename);
-                    counter++;
-                } catch (err) {
-                    fileExists = false;
-                }
-            }
-
-            cb(null, filename);
-        } catch (err) {
-            cb(err);
-        }
-    },
-});
-
+// Configuration de multer pour stocker temporairement les fichiers
+const storage = multer.memoryStorage(); // Stockage en mémoire au lieu du disque
 const upload = multer({ storage }).single('file');
 
 // Middleware to check if the review name already exists
@@ -80,6 +48,42 @@ router.get('/test', (req, res) => {
     res.status(200).send({ message: 'Test route works!' });
 });
 
+// Helper function to upload file to Cloudinary
+const uploadToCloudinary = (buffer, options) => {
+    return new Promise((resolve, reject) => {
+        const uploadStream = cloudinary.uploader.upload_stream(
+            options,
+            (error, result) => {
+                if (error) return reject(error);
+                resolve(result);
+            }
+        );
+        
+        const readableStream = new Readable({
+            read() {
+                this.push(buffer);
+                this.push(null);
+            }
+        });
+        
+        readableStream.pipe(uploadStream);
+    });
+};
+
+// Helper function to analyze video with ffprobe
+const analyzeVideo = (url) => {
+    return new Promise((resolve, reject) => {
+        ffmpeg.ffprobe(url, (err, metadata) => {
+            if (err) return reject(err);
+            
+            const videoStream = metadata.streams.find(stream => stream.codec_type === 'video');
+            const frameRate = videoStream ? eval(videoStream.r_frame_rate) : null;
+            
+            resolve({ frameRate });
+        });
+    });
+};
+
 // Simplified upload route to handle file upload
 router.post('/', (req, res) => {
     console.log('Upload route hit');
@@ -91,55 +95,47 @@ router.post('/', (req, res) => {
 
         const file = req.file;
         const { name, password } = req.body;
-        console.log(`File: ${file}, Name: ${name}, Password: ${password}`);
+        console.log(`File: ${file ? file.originalname : 'No file'}, Name: ${name}, Password: ${password}`);
+        
         if (!file) {
             return res.status(400).send({ message: 'No file uploaded.' });
         }
 
-        const filePath = path.resolve('./public/videos', file.filename);
-        console.log(filePath);
-
         try {
-            // Analyze the uploaded video file using ffmpeg
-            ffmpeg.ffprobe(filePath, async (err, metadata) => {
-                if (err) {
-                    console.error('Error probing video file:', err);
-                    await fs.unlink(filePath); // Delete the file
-                    return res.status(500).send({ message: 'Error analyzing video file.' });
-                }
-
-                const videoStream = metadata.streams.find(stream => stream.codec_type === 'video');
-                const frameRate = videoStream ? eval(videoStream.r_frame_rate) : null;
-
-                console.log('Frame Rate:', frameRate);
-
-                // Insert video details into the database
-                db.run(
-                    "INSERT INTO reviews (videoUrl, reviewName, password, frameRate) VALUES (?, ?, ?, ?)",
-                    [file.filename, name, password, frameRate],
-                    async function (err) {
-                        if (err) {
-                            console.error('Database error:', err);
-                            await fs.unlink(filePath); // Delete the file
-                            return res.status(500).send({ message: 'Database error.' });
-                        }
-
-                        // Emit upload progress using socket.io
-                        // io.emit('uploadProgress', { progress: 100, status: 'File uploaded' });
-
-                        res.status(200).json({ 
-                            message: 'File uploaded successfully.', 
-                            fileName: file.filename, 
-                            name, 
-                            frameRate 
-                        });
-                    }
-                );
+            // Upload to Cloudinary
+            const cloudinaryResult = await uploadToCloudinary(file.buffer, {
+                resource_type: 'video',
+                folder: 'openvidreview',
+                public_id: `${name.replace(/\s+/g, '_')}_${Date.now()}`
             });
+            
+            console.log('Cloudinary upload successful:', cloudinaryResult.secure_url);
+            
+            // Analyze the uploaded video
+            const { frameRate } = await analyzeVideo(cloudinaryResult.secure_url);
+            console.log('Frame Rate:', frameRate);
+
+            // Insert video details into the database
+            db.run(
+                "INSERT INTO reviews (videoUrl, reviewName, password, frameRate) VALUES (?, ?, ?, ?)",
+                [cloudinaryResult.secure_url, name, password, frameRate],
+                function (err) {
+                    if (err) {
+                        console.error('Database error:', err);
+                        return res.status(500).send({ message: 'Database error.' });
+                    }
+
+                    res.status(200).json({ 
+                        message: 'File uploaded successfully.', 
+                        fileName: cloudinaryResult.public_id, 
+                        name, 
+                        frameRate 
+                    });
+                }
+            );
         } catch (error) {
-            console.error('Error analyzing video file:', error);
-            await fs.unlink(filePath); // Delete the file
-            res.status(500).send({ message: 'Error analyzing video file.' });
+            console.error('Error processing video file:', error);
+            res.status(500).send({ message: 'Error processing video file.' });
         }
     });
 });

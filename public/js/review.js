@@ -41,9 +41,10 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (response.ok) {
           const data = await response.json();
           const videoUrl = data.videoUrl;
-          const videoFilename = videoUrl.replace(/\.[^/.]+$/, "");
-          const getVideo = "./videos/" + videoUrl;
-          downloadLink = "./videos/" + videoFilename;
+          // Utiliser directement l'URL Cloudinary
+          const getVideo = videoUrl;
+          // Stocker l'URL pour le téléchargement
+          downloadLink = videoUrl;
           frameRate = data.frameRate;
           changeVideoSource(getVideo);
           return data.videoId;
@@ -164,8 +165,17 @@ document.addEventListener("DOMContentLoaded", async () => {
       const timestamp = player.currentTime;
       const dropdown = document.getElementById("tag-color");
       const selectedOption = dropdown.value;
-      const colorObject = JSON.parse(selectedOption);
-      const colorName = colorObject.colorCode;
+      let colorName = "Blue"; // Couleur par défaut
+      
+      try {
+          if (selectedOption) {
+              const colorObject = JSON.parse(selectedOption);
+              colorName = colorObject.colorCode;
+          }
+      } catch (error) {
+          console.error("Error parsing color option:", error);
+      }
+      
       const isDone = 0;
       const text = commentTextInput.value.trim();
 
@@ -184,23 +194,30 @@ document.addEventListener("DOMContentLoaded", async () => {
           isDone,
       };
 
-      const response = await fetch("/comments", {
-          method: "POST",
-          headers: {
-              "Content-Type": "application/json",
-          },
-          body: JSON.stringify(payload),
-      });
+      try {
+          const response = await fetch("/comments", {
+              method: "POST",
+              headers: {
+                  "Content-Type": "application/json",
+              },
+              body: JSON.stringify(payload),
+          });
 
-      if (response.ok) {
-          const newComment = await response.json();
-          commentTextInput.value = "";
-          commentsData.push(newComment);
-          commentsData.sort((a, b) => a.timestamp - b.timestamp);
-          renderComments(commentsData);
-          player.play();
-      } else {
-          alert("Error adding comment");
+          if (response.ok) {
+              const newComment = await response.json();
+              commentTextInput.value = "";
+              commentsData.push(newComment);
+              commentsData.sort((a, b) => a.timestamp - b.timestamp);
+              renderComments(commentsData);
+              player.play();
+          } else {
+              const errorText = await response.text();
+              console.error("Error adding comment:", errorText);
+              alert("Error adding comment: " + errorText);
+          }
+      } catch (error) {
+          console.error("Error submitting comment:", error);
+          alert("Error submitting comment: " + error.message);
       }
   }
 

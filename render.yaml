@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: openvidreview
+    env: node
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: PORT
+        value: 3000
+      - key: PASSWORD
+        sync: false
+      - key: SECRET
+        generateValue: true
+      - key: TITLE
+        value: OpenVidReview
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
