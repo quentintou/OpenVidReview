@@ -70,30 +70,6 @@ const uploadToCloudinary = (buffer, options) => {
     });
 };
 
-// Helper function to analyze video with ffprobe
-const analyzeVideo = (url) => {
-    return new Promise((resolve, reject) => {
-        try {
-            ffmpeg.ffprobe(url, (err, metadata) => {
-                if (err) {
-                    console.warn('Warning: Could not analyze video with ffprobe:', err.message);
-                    // Résoudre avec un frameRate par défaut au lieu d'échouer
-                    return resolve({ frameRate: 24 });
-                }
-                
-                const videoStream = metadata.streams.find(stream => stream.codec_type === 'video');
-                const frameRate = videoStream ? eval(videoStream.r_frame_rate) : 24;
-                
-                resolve({ frameRate });
-            });
-        } catch (error) {
-            console.warn('Warning: ffprobe error:', error.message);
-            // Résoudre avec un frameRate par défaut au lieu d'échouer
-            resolve({ frameRate: 24 });
-        }
-    });
-};
-
 // Simplified upload route to handle file upload
 router.post('/', (req, res) => {
     console.log('Upload route hit');
@@ -122,41 +98,51 @@ router.post('/', (req, res) => {
             
             console.log('Cloudinary upload successful:', cloudinaryResult.secure_url);
             
-            let frameRate = 24; // Valeur par défaut
-            
-            try {
-                // Analyze the uploaded video
-                console.log('Analyzing video...');
-                const result = await analyzeVideo(cloudinaryResult.secure_url);
-                frameRate = result.frameRate;
-                console.log('Frame Rate:', frameRate);
-            } catch (analyzeError) {
-                console.warn('Warning: Could not analyze video, using default frame rate:', analyzeError.message);
-            }
+            // Utiliser une valeur par défaut pour le frameRate sans essayer d'analyser la vidéo
+            // Cela évite les problèmes potentiels avec ffprobe sur Render
+            const frameRate = 24;
+            console.log('Using default frame rate:', frameRate);
 
-            // Insert video details into the database
+            // Insert video details into the database using a promise
             console.log('Inserting into database...');
-            db.run(
-                "INSERT INTO reviews (videoUrl, reviewName, password, frameRate) VALUES (?, ?, ?, ?)",
-                [cloudinaryResult.secure_url, name, password, frameRate],
-                function (err) {
-                    if (err) {
-                        console.error('Database error:', err);
-                        return res.status(500).send({ message: 'Database error.' });
-                    }
-
-                    console.log('Upload process completed successfully');
-                    res.status(200).json({ 
-                        message: 'File uploaded successfully.', 
-                        fileName: cloudinaryResult.public_id, 
-                        name, 
-                        frameRate 
-                    });
+            
+            // Vérifier si un enregistrement avec le même nom existe déjà
+            db.get("SELECT id FROM reviews WHERE reviewName = ?", [name], async (err, row) => {
+                if (err) {
+                    console.error('Database error checking existing review:', err);
+                    return res.status(500).send({ message: `Database error: ${err.message}` });
                 }
-            );
+                
+                if (row) {
+                    console.log(`Review with name "${name}" already exists`);
+                    return res.status(400).send({ message: 'A review with this name already exists.' });
+                }
+                
+                // Insérer le nouvel enregistrement
+                db.run(
+                    "INSERT INTO reviews (videoUrl, reviewName, password, frameRate) VALUES (?, ?, ?, ?)",
+                    [cloudinaryResult.secure_url, name, password, frameRate],
+                    function (err) {
+                        if (err) {
+                            console.error('Database insertion error:', err);
+                            return res.status(500).send({ message: `Database error: ${err.message}` });
+                        }
+                        
+                        console.log('Database insertion successful, ID:', this.lastID);
+                        console.log('Upload process completed successfully');
+                        
+                        return res.status(200).json({ 
+                            message: 'File uploaded successfully.', 
+                            fileName: cloudinaryResult.public_id, 
+                            name, 
+                            frameRate 
+                        });
+                    }
+                );
+            });
         } catch (error) {
             console.error('Error processing video file:', error);
-            res.status(500).send({ message: `Error processing video file: ${error.message}` });
+            return res.status(500).send({ message: `Error processing video file: ${error.message}` });
         }
     });
 });

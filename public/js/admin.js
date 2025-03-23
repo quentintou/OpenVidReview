@@ -48,27 +48,53 @@ document.addEventListener("DOMContentLoaded", async () => {
               const percentComplete = (event.loaded / event.total) * 100;
               progressBar.style.display = 'block';
               progressBar.value = percentComplete;
+              uploadStatus.innerText = `Uploading: ${Math.round(percentComplete)}%`;
           }
       };
 
       xhr.onload = function () {
-          console.log(xhr.status);
+          console.log('XHR status:', xhr.status);
+          console.log('XHR response:', xhr.responseText);
           progressBar.style.display = 'none';
           if (xhr.status == 200) {
               uploadStatus.innerText = 'Upload complete!';
+              // Réinitialiser le formulaire
+              uploadForm.reset();
               loadReviews();
           } else if (xhr.status == 400) {
-              const response = JSON.parse(xhr.responseText);
-              uploadStatus.innerText = response.message || 'Please choose a unique review name';
+              try {
+                  const response = JSON.parse(xhr.responseText);
+                  uploadStatus.innerText = response.message || 'Please choose a unique review name';
+              } catch (e) {
+                  uploadStatus.innerText = 'Error parsing response: ' + xhr.responseText;
+              }
           } else {
-              uploadStatus.innerText = 'Upload failed.';
+              try {
+                  const response = JSON.parse(xhr.responseText);
+                  uploadStatus.innerText = response.message || 'Upload failed.';
+              } catch (e) {
+                  uploadStatus.innerText = 'Upload failed: ' + xhr.responseText;
+              }
           }
       };
 
       xhr.onerror = function () {
+          console.error('XHR error occurred');
           progressBar.style.display = 'none';
           uploadStatus.innerText = 'An error occurred during the upload. Please try again.';
       };
+
+      // Ajouter un timeout pour éviter que l'upload reste bloqué indéfiniment
+      xhr.timeout = 180000; // 3 minutes
+      xhr.ontimeout = function () {
+          console.error('XHR timeout occurred');
+          progressBar.style.display = 'none';
+          uploadStatus.innerText = 'Upload timed out. The video might be too large or the server is busy.';
+      };
+
+      // Afficher un message au début de l'upload
+      uploadStatus.innerText = 'Starting upload...';
+      console.log('Sending form data to server');
 
       xhr.send(formData);
   });
