@@ -73,14 +73,24 @@ const uploadToCloudinary = (buffer, options) => {
 // Helper function to analyze video with ffprobe
 const analyzeVideo = (url) => {
     return new Promise((resolve, reject) => {
-        ffmpeg.ffprobe(url, (err, metadata) => {
-            if (err) return reject(err);
-            
-            const videoStream = metadata.streams.find(stream => stream.codec_type === 'video');
-            const frameRate = videoStream ? eval(videoStream.r_frame_rate) : null;
-            
-            resolve({ frameRate });
-        });
+        try {
+            ffmpeg.ffprobe(url, (err, metadata) => {
+                if (err) {
+                    console.warn('Warning: Could not analyze video with ffprobe:', err.message);
+                    // Résoudre avec un frameRate par défaut au lieu d'échouer
+                    return resolve({ frameRate: 24 });
+                }
+                
+                const videoStream = metadata.streams.find(stream => stream.codec_type === 'video');
+                const frameRate = videoStream ? eval(videoStream.r_frame_rate) : 24;
+                
+                resolve({ frameRate });
+            });
+        } catch (error) {
+            console.warn('Warning: ffprobe error:', error.message);
+            // Résoudre avec un frameRate par défaut au lieu d'échouer
+            resolve({ frameRate: 24 });
+        }
     });
 };
 
@@ -103,6 +113,7 @@ router.post('/', (req, res) => {
 
         try {
             // Upload to Cloudinary
+            console.log('Starting Cloudinary upload...');
             const cloudinaryResult = await uploadToCloudinary(file.buffer, {
                 resource_type: 'video',
                 folder: 'openvidreview',
@@ -111,11 +122,20 @@ router.post('/', (req, res) => {
             
             console.log('Cloudinary upload successful:', cloudinaryResult.secure_url);
             
-            // Analyze the uploaded video
-            const { frameRate } = await analyzeVideo(cloudinaryResult.secure_url);
-            console.log('Frame Rate:', frameRate);
+            let frameRate = 24; // Valeur par défaut
+            
+            try {
+                // Analyze the uploaded video
+                console.log('Analyzing video...');
+                const result = await analyzeVideo(cloudinaryResult.secure_url);
+                frameRate = result.frameRate;
+                console.log('Frame Rate:', frameRate);
+            } catch (analyzeError) {
+                console.warn('Warning: Could not analyze video, using default frame rate:', analyzeError.message);
+            }
 
             // Insert video details into the database
+            console.log('Inserting into database...');
             db.run(
                 "INSERT INTO reviews (videoUrl, reviewName, password, frameRate) VALUES (?, ?, ?, ?)",
                 [cloudinaryResult.secure_url, name, password, frameRate],
@@ -125,6 +145,7 @@ router.post('/', (req, res) => {
                         return res.status(500).send({ message: 'Database error.' });
                     }
 
+                    console.log('Upload process completed successfully');
                     res.status(200).json({ 
                         message: 'File uploaded successfully.', 
                         fileName: cloudinaryResult.public_id, 
@@ -135,7 +156,7 @@ router.post('/', (req, res) => {
             );
         } catch (error) {
             console.error('Error processing video file:', error);
-            res.status(500).send({ message: 'Error processing video file.' });
+            res.status(500).send({ message: `Error processing video file: ${error.message}` });
         }
     });
 });

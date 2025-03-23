@@ -2,7 +2,7 @@ services:
   - type: web
     name: openvidreview
     env: node
-    buildCommand: npm install
+    buildCommand: ./build.sh
     startCommand: npm start
     envVars:
       - key: PORT
@@ -14,8 +14,8 @@ services:
       - key: TITLE
         value: OpenVidReview
       - key: CLOUDINARY_CLOUD_NAME
-        sync: false
+        value: dexvpbvrz
       - key: CLOUDINARY_API_KEY
-        sync: false
+        value: "653643671545153"
       - key: CLOUDINARY_API_SECRET
-        sync: false
+        value: "tFhGZNihnQXNhLvRsgmxYpIUJEY"
